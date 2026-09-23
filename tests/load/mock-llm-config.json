@@ -1,0 +1,1 @@
+{"version":"compose-1","enabled":true,"addr":":8081","mode":"echo","seed":1,"delay":"0s","status":200,"capture_ttl":"5m","capture_limit":1000}

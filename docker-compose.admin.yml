@@ -1,0 +1,175 @@
+services:
+  proxy:
+    labels: {alfagen.logs: "true", alfagen.service: backend}
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    user: "${ALFAGEN_ADMIN_UID:-10001}:${ALFAGEN_ADMIN_GID:-10001}"
+    command: ["-config", "/run/alfagen/config/backend.yaml"]
+    volumes:
+      - ./secrets/admin/config:/run/alfagen/config:ro
+      - ./secrets/admin/api-keys:/run/alfagen/api-keys:ro
+
+  admin:
+    labels: {alfagen.logs: "true", alfagen.service: admin}
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    build: {context: ., args: {TARGET: admin}}
+    user: "${ALFAGEN_ADMIN_UID:-10001}:${ALFAGEN_ADMIN_GID:-10001}"
+    environment:
+      CONTEXT_ENCRYPTION_KEY: ${CONTEXT_ENCRYPTION_KEY:?set CONTEXT_ENCRYPTION_KEY}
+      BENCHMARK_API_KEY: ${BENCHMARK_API_KEY:?set BENCHMARK_API_KEY}
+      ALFAGEN_ADMIN_ADDR: :8090
+      ALFAGEN_ADMIN_PROCESS_URL: http://proxy:8080/process
+      ALFAGEN_ADMIN_PROMETHEUS_URL: http://prometheus:9090
+      ALFAGEN_ADMIN_BACKEND_CONFIG: /run/alfagen/config/backend.yaml
+      ALFAGEN_ADMIN_MOCK_CONFIG: /run/alfagen/config/mock-client.json
+      ALFAGEN_ADMIN_API_KEY_DIR: /run/alfagen/api-keys
+      ALFAGEN_ADMIN_RUNTIME_API_KEY_DIR: /run/alfagen/api-keys
+      ALFAGEN_ADMIN_MTLS_DIR: /run/alfagen/mtls
+      ALFAGEN_ADMIN_REPORT: /run/alfagen/reports/load-report.json
+      ALFAGEN_ADMIN_AUDIT: /run/alfagen/audit/audit.jsonl
+      ALFAGEN_ADMIN_TOKEN_FILE: /run/secrets/admin-token
+      # This profile binds only to localhost over HTTP. Put a TLS reverse proxy
+      # in front and enable secure cookies when exposing it beyond the host.
+      ALFAGEN_ADMIN_SECURE_COOKIES: "false"
+    ports: ["127.0.0.1:${ALFAGEN_ADMIN_PORT:-8090}:8090"]
+    volumes:
+      - ./secrets/admin/config:/run/alfagen/config
+      - ./secrets/admin/api-keys:/run/alfagen/api-keys
+      - ./secrets/admin/reports:/run/alfagen/reports
+      - ./secrets/admin/audit:/run/alfagen/audit
+      - ./secrets/admin/admin-token:/run/secrets/admin-token:ro
+      - ${ALFAGEN_MTLS_DIR:-./secrets/mtls}:/run/alfagen/mtls
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8090/health"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+    depends_on:
+      proxy: {condition: service_healthy}
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+  mock-client:
+    build: {context: ., args: {TARGET: mock-client}}
+    user: "${ALFAGEN_ADMIN_UID:-10001}:${ALFAGEN_ADMIN_GID:-10001}"
+    command: ["-continuous", "-managed-status", "/run/alfagen/reports/status.json", "-metrics-addr", ":9091", "-report", "/run/alfagen/reports/load-report.json"]
+    environment:
+      ALFAGEN_CONFIG_SOURCE: file
+      ALFAGEN_CONFIG_FILE: /run/alfagen/config/mock-client.json
+      ALFAGEN_CONFIG_POLL: 2s
+      MOCK_CLIENT_API_KEY: ${BENCHMARK_API_KEY:?set BENCHMARK_API_KEY}
+      ALFAGEN_MTLS_CA_FILE: /run/alfagen/mtls/ca.crt
+      ALFAGEN_MTLS_CERT_FILE: /run/alfagen/mtls/client.crt
+      ALFAGEN_MTLS_KEY_FILE: /run/alfagen/mtls/client.key
+    volumes:
+      - ./secrets/admin/config:/run/alfagen/config:ro
+      - ./secrets/admin/api-keys:/run/alfagen/api-keys:ro
+      - ./secrets/admin/reports:/run/alfagen/reports
+      - ${ALFAGEN_MTLS_DIR:-./secrets/mtls}:/run/alfagen/mtls:ro
+    depends_on:
+      nginx: {condition: service_started}
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+
+  prometheus:
+    image: docker.io/prom/prometheus@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=1d", "--storage.tsdb.retention.size=256MB"]
+    ports: ["127.0.0.1:${ALFAGEN_PROMETHEUS_PORT:-9090}:9090"]
+    volumes:
+      - ./deploy/base/prometheus.admin.yml:/etc/prometheus/prometheus.yml:ro
+      - admin-prometheus-data:/prometheus
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/ready"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki@sha256:1107dd5274e0ada47e42472b7a7e71f3b2a2fe878878108f3e2f9e51528f0193
+    command: ["-config.file=/etc/loki/config.yaml"]
+    environment: {GOMEMLIMIT: 800MiB}
+    volumes:
+      - ./deploy/loki.yaml:/etc/loki/config.yaml:ro
+      - admin-loki-data:/loki
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    mem_limit: 1g
+    restart: unless-stopped
+
+  alloy:
+    # Root reads the Docker socket; group 473 owns the persistent Alloy data.
+    user: "0:473"
+    image: grafana/alloy@sha256:b8ec653c44235fbe910879145dac3597d66b0aaecf60bcbbe82580767771a839
+    command: ["run", "/etc/alloy/config.alloy", "--storage.path=/var/lib/alloy", "--server.http.listen-addr=0.0.0.0:12345", "--disable-reporting"]
+    environment:
+      ALFAGEN_COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME}
+      GOMEMLIMIT: 400MiB
+    volumes:
+      - ./deploy/base/alloy.admin.alloy:/etc/alloy/config.alloy:ro
+      - ${ALFAGEN_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock:ro
+      - admin-alloy-data:/var/lib/alloy
+    depends_on:
+      loki: {condition: service_started}
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    mem_limit: 512m
+    restart: unless-stopped
+
+  grafana:
+    image: docker.io/grafana/grafana@sha256:ac461fb352abc50da10a51c7d02462e9c05488f11f53f14b3ad79a8145f638a0
+    # Keep Grafana's unprivileged UID and volume ownership; grant read access
+    # to the operator-owned bootstrap password file through its group.
+    group_add: ["${ALFAGEN_ADMIN_GID:-10001}"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana-password
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_LOG_MODE: console
+    ports: ["127.0.0.1:${ALFAGEN_GRAFANA_PORT:-13000}:3000"]
+    volumes:
+      - admin-grafana-data:/var/lib/grafana
+      - ./secrets/admin/grafana-password:/run/secrets/grafana-password:ro
+      - ./deploy/grafana/datasources.yaml:/etc/grafana/provisioning/datasources/alfagen.yaml:ro
+      - ./deploy/grafana/dashboards.yaml:/etc/grafana/provisioning/dashboards/alfagen.yaml:ro
+      - ./deploy/grafana/alfagen-operations.json:/var/lib/grafana-dashboards/alfagen-operations.json:ro
+      - ./deploy/grafana/alfagen-logs.json:/var/lib/grafana-logs/alfagen-logs.json:ro
+    healthcheck:
+      # Loki's distroless image has no HTTP probe binary. Wait for all three
+      # here so admin-up only succeeds when log queries can work as well.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/api/health && wget -q -O /dev/null http://loki:3100/ready && wget -q -O /dev/null http://alloy:12345/-/ready"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
+      start_period: 20s
+    depends_on:
+      prometheus: {condition: service_healthy}
+      alloy: {condition: service_started}
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    restart: unless-stopped
+
+volumes:
+  admin-prometheus-data: {}
+  admin-grafana-data: {}
+  admin-loki-data: {}
+  admin-alloy-data: {}

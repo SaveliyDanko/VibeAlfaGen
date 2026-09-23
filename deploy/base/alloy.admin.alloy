@@ -1,0 +1,77 @@
+logging {
+  level = "warn"
+}
+
+// Scope discovery to this Compose project and explicitly selected app services.
+discovery.docker "alfagen" {
+  host = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
+  filter {
+    name = "label"
+    values = ["com.docker.compose.project=" + sys.env("ALFAGEN_COMPOSE_PROJECT"), "alfagen.logs=true"]
+  }
+}
+
+discovery.relabel "logs" {
+  targets = discovery.docker.alfagen.targets
+  rule {
+    target_label = "namespace"
+    replacement = "alfagen-prod"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex = "/(.*)"
+    target_label = "pod"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label = "container"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_alfagen_service"]
+    target_label = "service_name"
+  }
+  rule {
+    source_labels = ["service_name"]
+    regex = "backend|admin"
+    action = "keep"
+  }
+}
+
+loki.source.docker "alfagen" {
+  host = "unix:///var/run/docker.sock"
+  targets = discovery.relabel.logs.output
+  forward_to = [loki.process.alfagen.receiver]
+}
+
+loki.process "alfagen" {
+  forward_to = [loki.write.local.receiver]
+  stage.json {
+    expressions = { level = "level", msg = "msg", status = "status" }
+  }
+  // Keep business INFO and every failed HTTP request. Drop only routine
+  // successful INFO/DEBUG access events (including readiness/liveness probes).
+  stage.drop {
+    source = "msg,status,level"
+    separator = ";"
+    expression = "^http_request;[23][0-9]{2};(?i:info|debug)$"
+    drop_counter_reason = "successful_http_access"
+  }
+  // Strip query strings from access/error log URLs and referrers.
+  stage.replace {
+    expression = "(\\?[^\\s\"\\]]+)"
+    replace = "?[REDACTED]"
+  }
+  stage.regex {
+    expression = "(?:^|\\s)level=(?P<level>debug|info|warn|error|fatal)(?:\\s|$)"
+  }
+  stage.labels {
+    values = { level = "" }
+  }
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

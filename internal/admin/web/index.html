@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AlfaGen Control</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script src="/assets/app.js" type="module"></script>
+</head>
+<body>
+  <div id="login" class="login-shell">
+    <section class="login-card">
+      <div class="mark">A</div>
+      <p class="eyebrow">ALFAGEN · PRIVATE CONTROL PLANE</p>
+      <h1>Проверка данных.<br>Управление доступом.</h1>
+      <p class="muted">Ручное маскирование и восстановление, настройки систем и нагрузочный стенд. Тексты и ключи не попадают в журнал панели.</p>
+      <form id="login-form">
+        <label>Токен администратора<input id="token" type="password" autocomplete="current-password" minlength="24" required></label>
+        <button class="primary" type="submit">Открыть панель <span>→</span></button>
+      </form>
+      <p id="login-error" class="error"></p>
+    </section>
+  </div>
+
+  <div id="app" class="app hidden">
+    <aside>
+      <div class="brand"><div class="mark small">A</div><div><b>AlfaGen</b><small>CONTROL PLANE</small></div></div>
+      <nav>
+        <button data-page="overview" class="active"><span>◫</span> Обзор</button>
+        <button data-page="access"><span>⌁</span> Доступ</button>
+        <button data-page="certs"><span>◇</span> mTLS</button>
+        <button data-page="tests"><span>↗</span> Нагрузочный стенд</button>
+        <button data-page="playground"><span>⇄</span> Ручная проверка</button>
+        <button data-page="audit"><span>≡</span> Аудит</button>
+      </nav>
+      <div class="aside-bottom"><span class="status-dot"></span> Config hot reload<button id="logout">Выйти</button></div>
+    </aside>
+    <main>
+      <header><div><p class="eyebrow">PRIVATE OPERATOR SURFACE</p><h2 id="page-title">Обзор</h2></div><div class="header-actions"><span id="sync">Не синхронизировано</span><button id="refresh" class="icon">↻</button></div></header>
+
+      <section id="page-overview" class="page active">
+        <div class="hero"><div><p class="eyebrow">SECURITY POSTURE</p><h3>Доступ под контролем.<br><i>Нагрузка — тоже.</i></h3><p>Единая точка управления API-ключами, клиентскими сертификатами и mock-client.</p></div><div class="hero-orbit"><span id="hero-systems">0</span><small>СИСТЕМ</small></div></div>
+        <article class="panel throughput-panel"><div><span class="eyebrow">TOKENS PER SECOND · ОЦЕНКА</span><strong data-tps-value>—</strong><small><output data-tps-status>Загрузка метрики…</output></small></div><p class="muted">Новые payload ID · среднее за минуту по доступным репликам backend.<br>Оценка: байты UTF‑8 / 4, округление вверх. Повторы и восстановление не учитываются.</p></article>
+        <div class="metric-grid">
+          <article><span>Разрешённые системы</span><strong id="metric-systems">—</strong><small>backend policy</small></article>
+          <article><span>Активные сертификаты</span><strong id="metric-certs">—</strong><small>clientAuth</small></article>
+          <article><span>Нагрузочный тест</span><strong id="metric-test">—</strong><small>mock-client</small></article>
+          <article><span>Версия политики</span><strong id="metric-version" class="version">—</strong><small>hot reload</small></article>
+        </div>
+        <div class="split"><article class="panel"><div class="panel-head"><h3>Контур доступа</h3><button data-jump="access">Настроить →</button></div><div id="overview-systems" class="compact-list"></div></article><article class="panel"><div class="panel-head"><h3>Последний прогон</h3><button data-jump="tests">Открыть →</button></div><div id="overview-report" class="report-empty">Загружаем отчёт…</div></article></div>
+      </section>
+
+      <section id="page-access" class="page">
+        <div class="section-intro"><div><p class="eyebrow">ALLOWLIST + API KEYS</p><h3>Системы-потребители</h3><p>Сохранённые настройки передаются backend без перезапуска. Ключ показывается только один раз.</p></div><button id="add-system" class="primary">+ Добавить систему</button></div>
+        <div class="panel table-panel"><table><caption class="visually-hidden">Доступ и политики систем-потребителей</caption><thead><tr><th>Система</th><th>Состояние</th><th>Доступ</th><th>Политика</th><th></th></tr></thead><tbody id="systems-table"></tbody></table></div>
+      </section>
+
+      <section id="page-certs" class="page">
+        <div class="section-intro"><div><p class="eyebrow">MUTUAL TLS</p><h3>Клиентские сертификаты</h3><p>Сертификат подтверждает машину, API-ключ — систему. Можно требовать оба фактора одновременно.</p></div><button id="issue-cert" class="primary">+ Выпустить сертификат</button></div>
+        <div class="notice"><b>Отзыв через CRL</b><span>После отзыва перезагрузите edge/Nginx, чтобы он перечитал <code>ca.crl</code>.</span></div>
+        <div id="cert-grid" class="cert-grid"></div>
+      </section>
+
+      <section id="page-tests" class="page">
+        <div class="section-intro"><div><p class="eyebrow">LOAD STAND</p><h3>Нагрузочный сценарий</h3><p>«Запустить» сохраняет текущие настройки и начинает новый прогон. Показатели обновляются автоматически.</p></div><div class="test-actions"><button id="stop-test" class="secondary">■ Остановить</button><button id="start-test" class="primary">▶ Запустить</button></div></div>
+        <article class="panel throughput-panel"><div><span class="eyebrow">TOKENS PER SECOND · ОЦЕНКА</span><strong data-tps-value>—</strong><small><output data-tps-status>Загрузка метрики…</output></small></div><p class="muted">Новые payload ID · среднее за минуту по доступным репликам backend.<br>Оценка: байты UTF‑8 / 4, округление вверх. Повторы и восстановление не учитываются.</p></article>
+        <article id="run-panel" class="panel run-panel" aria-live="polite"><div class="panel-head"><h3 id="run-title">Состояние генератора</h3><span id="test-state" class="pill">—</span></div><p id="run-description" class="muted"></p><div class="run-meta"><span id="run-id"></span><span id="run-heartbeat"></span></div><progress id="run-progress" max="100" value="0" hidden aria-label="Прогресс теста"></progress><div id="run-stats" class="report-stats"></div></article>
+        <p id="test-error" class="error" role="alert"></p>
+        <div class="split test-split"><form id="test-form" class="panel form-grid"><label>Сценарий<select name="scenario"><option>round_trip</option><option>mask_only</option><option>mixed</option><option>stable_retry</option><option>expected_conflict</option><option>request</option></select></label><label>Режим<select name="mode"><option value="process">process</option><option value="generate">generate</option></select></label><label>Целевой RPS<input name="rate_per_second" required type="number" min="0.1" step="0.1"></label><label>Длительность<input name="duration" placeholder="30s"></label><label>Timeout<input name="request_timeout" required placeholder="5s"></label><label>Лимит операций<input name="operation_limit" type="number" min="0"></label><label class="wide">Target URL<input name="target_url" type="url" required></label><label>Система<select name="system_id" required></select></label><label>Профиль данных<select name="payload_profile"><option value="small">small — короткий</option><option value="medium">medium — средний</option><option value="large">large — длинный</option><option value="short">short</option><option value="long">long</option><option value="long-100k">long-100k (приблизительный)</option></select></label><fieldset id="mixed-weights" class="wide" hidden><legend>Доли операций в mixed</legend><div class="two"><label>Маскирование<input name="weight_mask_only" type="number" min="0" step="any" value="1"></label><label>Полный цикл<input name="weight_round_trip" type="number" min="0" step="any" value="1"></label><label>Повтор<input name="weight_stable_retry" type="number" min="0" step="any" value="1"></label><label>Ожидаемый конфликт<input name="weight_expected_conflict" type="number" min="0" step="any" value="1"></label></div></fieldset><p class="wide muted form-hint">RPS — число HTTP-запросов в секунду. Полный цикл и другие составные операции делают несколько запросов. Длительность 0s — до остановки; пустой лимит операций — без ограничения.</p><div class="wide form-footer"><span id="test-draft" class="muted">Настройки сохранены</span><button id="save-test" class="secondary" type="submit">Сохранить конфигурацию</button></div></form><article class="panel report-panel"><div class="panel-head"><h3 id="report-title">Последний отчёт</h3><button id="refresh-report">Обновить</button></div><div id="report"></div></article></div>
+      </section>
+
+      <section id="page-playground" class="page">
+        <div class="section-intro"><div><p class="eyebrow">PAYLOAD LAB</p><h3>Маскирование и восстановление</h3><p>Введите любую строку и проверьте полный цикл на выбранной системе.</p></div><button id="manual-clear" class="secondary">Очистить</button></div>
+        <form id="manual-form" autocomplete="off">
+          <fieldset id="manual-fields" class="manual-fields">
+            <legend class="visually-hidden">Ручная проверка маскирования и восстановления</legend>
+            <div class="panel form-grid">
+              <label>Система<select id="manual-system" required></select></label>
+              <label>Payload ID<div class="manual-id"><input id="manual-id" maxlength="256" required spellcheck="false"><button id="manual-new-id" type="button" class="secondary">Новый ID</button></div></label>
+              <p id="manual-policy" class="muted form-hint wide"></p>
+            </div>
+            <p class="muted manual-hint">Один ID связывает исходный текст и его маску. Другой текст с тем же ID вызовет 409. Для отдельного примера создайте новый ID.</p>
+            <div class="manual-grid">
+              <article class="panel"><h3>1. Исходный текст</h3><label for="manual-source">Payload</label><textarea id="manual-source" rows="12" spellcheck="false" placeholder="Например: Напишите Анне на anna@example.test"></textarea><button id="manual-mask" type="submit" class="primary">Маскировать →</button></article>
+              <article class="panel"><h3>2. Маскированный результат</h3><label for="manual-masked">Можно отредактировать перед отправкой</label><textarea id="manual-masked" rows="12" spellcheck="false" placeholder="Здесь появится ответ системы"></textarea><button id="manual-restore" type="button" class="primary" disabled>Восстановить →</button></article>
+              <article class="panel"><h3>3. Восстановленный текст</h3><label for="manual-restored">Ответ системы</label><textarea id="manual-restored" rows="12" readonly spellcheck="false" placeholder="Отправьте маску на восстановление"></textarea><p id="manual-match" class="muted form-hint"></p></article>
+            </div>
+          </fieldset>
+        </form>
+        <p><output id="manual-status" class="manual-status" aria-live="polite">Готово к отправке</output></p>
+        <p id="manual-error" class="error" role="alert"></p>
+        <p class="muted manual-hint">Запросы выполняются через /process с правами выбранной системы. Исходник и маска хранятся в контексте backend до истечения TTL; панель не сохраняет историю текстов. Для восстановления нужны тот же ID, та же система и точная маска.</p>
+      </section>
+      <section id="page-audit" class="page"><div class="section-intro"><div><p class="eyebrow">SAFE EVENT LOG</p><h3>Журнал операций</h3><p>Только действие, ресурс, результат и время. Значения ключей и персональные данные не пишутся.</p></div></div><div class="panel"><div id="audit-list" class="audit-list"></div></div></section>
+    </main>
+  </div>
+
+  <dialog id="system-dialog"><form id="system-form" method="dialog"><div class="dialog-head"><div><p class="eyebrow">ACCESS POLICY</p><h3>Система</h3></div><button value="cancel" class="icon">×</button></div><p id="system-error" class="error" role="alert"></p><input type="hidden" name="original_id"><label>ID системы<input name="id" required pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,63}"></label><div class="two"><label>Режим доступа<select name="access_mode"><option value="api_key">API key</option><option value="anonymous">Без ключа</option></select></label><label>Маскирование<select name="mask_mode"><option value="format">format</option><option value="token">token</option></select></label></div><label>Профиль детекции<select name="detection_profile"><option value="">По умолчанию</option><option value="balanced">balanced</option><option value="conservative">conservative</option><option value="strict">strict</option></select></label><div id="detect-types-picker" data-types="detect_types"></div><div id="mask-types-picker" data-types="mask_types"></div><p class="muted form-hint">Типы маскирования должны входить в типы детекции. В каждом списке можно выбрать несколько типов. Чтобы отключить обработку всех типов, выберите «Ни одного» в обоих списках. Новые настройки маски применяются к новым payload ID; разрешение демаскирования — также к уже сохранённым сообщениям.</p><div class="checks"><label><input name="enabled" type="checkbox"> Система активна</label><label><input name="allow_demask" type="checkbox"> Разрешить демаскирование</label><label><input name="generate_api_key" type="checkbox"> Выпустить новый API-ключ</label></div><div class="dialog-actions"><button value="cancel" class="secondary">Отмена</button><button id="save-system" value="default" class="primary">Сохранить</button></div></form></dialog>
+  <dialog id="cert-dialog"><form id="cert-form" method="dialog"><div class="dialog-head"><div><p class="eyebrow">CLIENT AUTH</p><h3>Новый сертификат</h3></div><button value="cancel" class="icon">×</button></div><label>Система<select name="system_id" required></select></label><p class="muted">Будет создан отдельный RSA-ключ и сертификат clientAuth от AlfaGen CA.</p><div class="dialog-actions"><button value="cancel" class="secondary">Отмена</button><button value="default" class="primary">Выпустить</button></div></form></dialog>
+  <dialog id="secret-dialog" class="secret-dialog"><div class="dialog-head"><div><p class="eyebrow">SHOW ONCE</p><h3 id="secret-title">Сохраните секрет</h3></div><button id="close-secret" class="icon">×</button></div><p id="secret-notice" class="muted"></p><textarea id="secret-value" aria-labelledby="secret-title" readonly></textarea><div class="dialog-actions"><button id="download-secret" class="secondary">Скачать bundle</button><button id="copy-secret" class="primary">Копировать</button></div></dialog>
+  <output id="toast" class="toast"></output>
+</body>
+</html>

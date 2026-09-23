@@ -1,0 +1,43 @@
+version: v1
+runtime:
+  mode: test_generate
+server:
+  addr: ":8080"
+  read_header_timeout: 5s
+  read_timeout: 30s
+  write_timeout: 30s
+  idle_timeout: 60s
+  max_body_bytes: 2097152
+  concurrency_limit: 256
+  request_timeout: 10s
+  rate_limit_rps: 10000
+  rate_limit_burst: 1000
+provider:
+  base_url: "http://mock-llm:8081"
+  timeout: 5s
+  models: ["mock"]
+store:
+  mode: redis
+  # Covers the five-minute run, Retry-After waits, retry drain and replay margin.
+  ttl: 30m
+  cleanup_every: 1m
+  redis_addr: "redis:6379"
+  redis_db: 0
+  pool_size: 128
+  min_idle_conns: 16
+  pool_timeout: 1s
+  key_prefix: "alfagen:context:"
+security:
+  log_level: info
+  active_key_id: "v1"
+  encryption_keys:
+    v1: "${CONTEXT_ENCRYPTION_KEY}"
+default_system: benchmark
+systems:
+  - id: benchmark
+    api_key: "${BENCHMARK_API_KEY}"
+    allow_anonymous: false
+    enabled: true
+    types: []
+    mask_mode: format
+    allow_demask: true

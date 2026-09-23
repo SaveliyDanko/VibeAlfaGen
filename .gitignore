@@ -1,0 +1,66 @@
+# Go build and test artifacts
+/bin/
+/build/
+/dist/
+*.exe
+*.test
+*.out
+coverage.*
+*.prof
+*.pprof
+
+# Optional Python NER adapter
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# JavaScript tooling dependencies
+node_modules/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.local.json
+*.local.yaml
+*.local.yml
+secrets/
+*.pem
+*.key
+
+# Docker and local cluster overrides
+docker-compose.override.yml
+docker-compose.override.yaml
+compose.override.yml
+compose.override.yaml
+.minikube/
+.kube/
+
+# Logs, temporary files, and generated packages
+*.log
+*.tmp
+*.swp
+*~
+.cache/
+/tmp/
+/artifacts/
+*.zip
+*.tar
+*.tar.gz
+
+# Editors and IDEs
+.idea/
+.vscode/
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db
+Desktop.ini

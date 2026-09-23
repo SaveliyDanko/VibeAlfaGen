@@ -1,0 +1,134 @@
+{
+  "uid": "alfagen-logs",
+  "title": "AlfaGen Logs",
+  "schemaVersion": 39,
+  "version": 2,
+  "tags": [
+    "alfagen",
+    "logs"
+  ],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "type": "custom",
+        "query": "alfagen-prod,alfagen-bench",
+        "multi": true,
+        "includeAll": true,
+        "allValue": "alfagen-prod|alfagen-bench",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "service",
+        "label": "Service",
+        "type": "custom",
+        "query": "backend,backend-generate,admin",
+        "multi": true,
+        "includeAll": true,
+        "allValue": "backend|backend-generate|admin",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "search",
+        "label": "Search (regex)",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Log volume by service",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 16,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service_name) (count_over_time({namespace=~\"alfagen-prod|alfagen-bench\", namespace=~\"$namespace\", service_name=~\"backend|backend-generate|admin\", service_name=~\"$service\"} | json log_msg=\"msg\", log_status=\"status\", log_level=\"level\" | (log_msg!=\"http_request\" or log_status!~\"[23][0-9]{2}\" or log_level!~\"(?i:info|debug)\") | drop __error__, __error_details__, log_msg, log_status, log_level [$__interval]))",
+          "legendFormat": "{{service_name}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Errors / warnings",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service_name) (count_over_time({namespace=~\"alfagen-prod|alfagen-bench\", namespace=~\"$namespace\", service_name=~\"backend|backend-generate|admin\", service_name=~\"$service\"} | json log_msg=\"msg\", log_status=\"status\", log_level=\"level\" | (log_msg!=\"http_request\" or log_status!~\"[23][0-9]{2}\" or log_level!~\"(?i:info|debug)\") |~ \"(?i)(error|fatal|panic|warn)\" | drop __error__, __error_details__, log_msg, log_status, log_level [$__interval]))",
+          "legendFormat": "{{service_name}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "logs",
+      "title": "AlfaGen logs",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 24,
+        "h": 18
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{namespace=~\"alfagen-prod|alfagen-bench\", namespace=~\"$namespace\", service_name=~\"backend|backend-generate|admin\", service_name=~\"$service\"} | json log_msg=\"msg\", log_status=\"status\", log_level=\"level\" | (log_msg!=\"http_request\" or log_status!~\"[23][0-9]{2}\" or log_level!~\"(?i:info|debug)\") |~ \"$search\"",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    }
+  ],
+  "description": "Бизнес-события backend/backend-generate и admin. Успешные HTTP access/probes и инфраструктурные сервисы исключены. Ошибки HTTP 4xx/5xx, WARN/ERROR и бизнес INFO сохраняются."
+}

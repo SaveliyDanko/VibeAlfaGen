@@ -1,0 +1,139 @@
+openapi: 3.0.3
+info:
+  title: AlfaGen PII processing API
+  version: 1.2.0
+  description: >-
+    Stateful mask/demask contract. Production exposes only POST /process;
+    POST /v1/generate is available solely in the isolated test_generate mode.
+x-alfagen-runtime-modes:
+  process_only: [/process]
+  test_generate: [/process, /v1/generate]
+paths:
+  /v1/generate:
+    post:
+      operationId: generate
+      summary: Mask text, call the configured LLM provider, then restore known markers
+      description: Test-only route; it is not registered in process_only or exposed by production ingress.
+      x-alfagen-exposure: test-only
+      parameters:
+        - in: header
+          name: X-System-ID
+          schema: {type: string}
+        - in: header
+          name: X-API-Key
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/GenerateRequest'}
+      responses:
+        '200':
+          description: Provider response after protected round trip
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GenerateResponse'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '410': {description: Explicit masking context was lost}
+        '413': {description: Request body is too large}
+        '429': {description: Service is overloaded; Retry-After is provided}
+        '502': {description: Provider failed}
+        '503': {description: Required dependency unavailable}
+        '504': {description: Request timed out}
+  /process:
+    post:
+      operationId: process
+      summary: Mask a new payload or demask a previously returned mask
+      description: The only public production business endpoint.
+      x-alfagen-exposure: production
+      parameters:
+        - in: header
+          name: X-System-ID
+          required: false
+          description: Optional for the configured default system.
+          schema: {type: string}
+        - in: header
+          name: X-API-Key
+          required: false
+          description: Required only when the selected consumer is authenticated; omitted for an explicitly anonymous consumer.
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProcessRequest'
+      responses:
+        '200':
+          description: Successful masking or demasking
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessResponse'
+        '400': {description: Invalid request}
+        '401': {description: Authentication failed}
+        '403': {description: Unknown or disabled consumer}
+        '409': {description: The payload ID is bound to different content}
+        '413': {description: Request body is too large}
+        '429': {description: Service is overloaded; Retry-After is provided}
+        '500': {description: Internal error}
+        '503': {description: Required PII or storage dependency unavailable}
+        '504': {description: Request timed out}
+components:
+  responses:
+    BadRequest:
+      description: Invalid request
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
+    Unauthorized:
+      description: Authentication failed
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
+    Forbidden:
+      description: Access denied
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
+    Conflict:
+      description: Identifier is bound to different content
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
+  schemas:
+    GenerateRequest:
+      type: object
+      additionalProperties: false
+      required: [request_id, model, text]
+      properties:
+        request_id: {type: string, minLength: 1}
+        model: {type: string, minLength: 1}
+        text: {type: string}
+    GenerateResponse:
+      type: object
+      additionalProperties: false
+      required: [request_id, text]
+      properties:
+        request_id: {type: string}
+        text: {type: string}
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, retryable]
+          properties:
+            code: {type: string}
+            retryable: {type: boolean}
+    ProcessRequest:
+      type: object
+      additionalProperties: false
+      required: [payload, payload_id]
+      properties:
+        payload: {type: string}
+        payload_id: {type: string, minLength: 1}
+    ProcessResponse:
+      type: object
+      additionalProperties: false
+      required: [result]
+      properties:
+        result: {type: string}

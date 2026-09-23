@@ -1,0 +1,113 @@
+# Example configuration for the AlfaGen PII protection service: process-only,
+# the production runtime mode. It serves POST /process and does not create or
+# call any LLM provider. For the separate test-only /v1/generate surface with
+# a Mock LLM, see config.compose.yaml.
+version: v1
+
+runtime:
+  mode: process_only
+
+server:
+  addr: ":8080"
+  read_header_timeout: 5s
+  read_timeout: 30s
+  write_timeout: 30s
+  idle_timeout: 60s
+  # Enough for text up to ~100k tokens (roughly 400KB); 2 MiB is a safe margin.
+  max_body_bytes: 2097152
+  concurrency_limit: 256
+  request_timeout: 10s
+  rate_limit_rps: 10000
+  rate_limit_burst: 1000
+
+store:
+  # memory is for local demo/tests. The Minikube profile uses redis.
+  mode: memory
+  # Covers the five-minute run, Retry-After waits, retry drain and replay margin.
+  ttl: 30m
+  cleanup_every: 1m
+  redis_addr: "127.0.0.1:6379"
+  redis_password: ""
+  redis_db: 0
+  pool_size: 128
+  min_idle_conns: 16
+  pool_timeout: 1s
+  key_prefix: "alfagen:context:"
+
+security:
+  log_level: info
+  # Required when store.mode=redis. Values must be base64-encoded 32-byte
+  # keys supplied via Secret/environment; keep old key IDs until their TTLs expire.
+  active_key_id: ""
+  encryption_keys: {}
+
+# Demonstrates extending the detected PII categories through config alone: no
+# new Go detector file, no change to internal/pii/pii.go's built-in type list.
+# The "benchmark" system below allows all types (types: []), so this fires
+# immediately for a value like "таб. номер 654321" without any other change.
+# A type with no dedicated strategy masks all letters and digits, preserving
+# separators. Use mask_mode: token for an opaque authenticated typed marker.
+# Changing custom_pii_types requires a restart; per-system policies can reload.
+custom_pii_types:
+  - type: employee_badge
+    pattern: '(?i)таб\.\s*номер\s*[:\-]?\s*\d{6}'
+    confidence: high
+
+# The default system used when X-System-ID is absent. It must work without an
+# API key so automated checks can call the service.
+default_system: benchmark
+
+systems:
+  - id: benchmark
+    allow_anonymous: true
+    enabled: true
+    # Empty types list means "all supported types".
+    types: []
+    mask_mode: format
+    # Optional; default balanced. Also conservative or strict (forces tokens).
+    detection_profile: balanced
+    allow_demask: true
+    # No api_key: benchmark works without authentication.
+
+  - id: internal
+    # Set INTERNAL_API_KEY and enable this system for authenticated use.
+    enabled: false
+    types:
+      - full_name
+      - date_of_birth
+      - passport_number
+      - email
+      - phone
+      - inn
+      - card_number
+    mask_mode: format
+    allow_demask: true
+    api_key: "${INTERNAL_API_KEY}"
+
+  - id: read_only
+    # Set READONLY_API_KEY and enable this system for authenticated use.
+    enabled: false
+    types: []
+    mask_mode: token
+    allow_demask: false
+    api_key: "${READONLY_API_KEY}"
+
+  - id: disabled_system
+    enabled: false
+    types: []
+    mask_mode: format
+    allow_demask: false
+    api_key: "${DISABLED_API_KEY}"
+
+  - id: conditional
+    # Set CONDITIONAL_API_KEY and enable this system for authenticated use.
+    enabled: false
+    types: []
+    mask_mode: format
+    allow_demask: true
+    api_key: "${CONDITIONAL_API_KEY}"
+    # PIN is masked only when a card number is present.
+    rules:
+      - type: card_pin
+        requires:
+          - card_number

@@ -1,0 +1,64 @@
+services:
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory", "${ALFAGEN_REDIS_MAXMEMORY:-3gb}", "--maxmemory-policy", "noeviction"]
+    mem_limit: ${ALFAGEN_REDIS_MEMORY:-4g}
+    volumes: ["redis-data:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 1s
+      retries: 20
+  mock-llm:
+    build: {context: ., args: {TARGET: mock-llm}}
+    environment:
+      ALFAGEN_CONFIG_SOURCE: file
+      ALFAGEN_CONFIG_FILE: /run/alfagen/mock-llm.json
+    volumes:
+      - ./tests/load/mock-llm-config.json:/run/alfagen/mock-llm.json:ro
+  proxy:
+    build: {context: ., args: {TARGET: proxy}}
+    command: ["-config", "/app/config.compose.yaml"]
+    environment:
+      CONTEXT_ENCRYPTION_KEY: ${CONTEXT_ENCRYPTION_KEY:?set CONTEXT_ENCRYPTION_KEY to a base64 32-byte key}
+      BENCHMARK_API_KEY: ${BENCHMARK_API_KEY:?set BENCHMARK_API_KEY}
+    expose: ["8080"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/ready"]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+    depends_on:
+      redis: {condition: service_healthy}
+      mock-llm: {condition: service_started}
+  crl-renewer:
+    build: {context: ., args: {TARGET: admin}}
+    user: "${ALFAGEN_ADMIN_UID:-0}:${ALFAGEN_ADMIN_GID:-0}"
+    command: ["-maintain-crl"]
+    environment:
+      ALFAGEN_ADMIN_MTLS_DIR: /run/alfagen/mtls
+    volumes:
+      - ${ALFAGEN_MTLS_DIR:-./secrets/mtls}:/run/alfagen/mtls
+    read_only: true
+    tmpfs: ["/tmp"]
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+  nginx:
+    image: nginx:1.27-alpine
+    entrypoint: ["/bin/sh", "/opt/nginx-crl-watch.sh"]
+    ports: ["${ALFAGEN_BIND_ADDR:-127.0.0.1}:${ALFAGEN_HTTPS_PORT:-8443}:8443"]
+    volumes:
+      - ./scripts/nginx-crl-watch.sh:/opt/nginx-crl-watch.sh:ro
+      - ./deploy/base/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ${ALFAGEN_MTLS_DIR:-./secrets/mtls}/server.crt:/etc/nginx/tls/tls.crt:ro
+      - ${ALFAGEN_MTLS_DIR:-./secrets/mtls}/server.key:/etc/nginx/tls/tls.key:ro
+      # Directory mount makes atomic CRL replacement visible after nginx reload,
+      # without exposing the private CA key to the edge container.
+      - ${ALFAGEN_MTLS_DIR:-./secrets/mtls}/public:/etc/nginx/client-ca:ro
+    depends_on:
+      proxy: {condition: service_healthy}
+    read_only: true
+    tmpfs: ["/var/cache/nginx", "/var/run"]
+    security_opt: ["no-new-privileges:true"]
+volumes:
+  redis-data: {}
