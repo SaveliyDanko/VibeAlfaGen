@@ -23,7 +23,20 @@ export function initThroughput(api) {
     }
   }
   return {
-    start(){if(active)return;active=true;generation++;poll()},
-    stop(){active=false;generation++;clearTimeout(timer);controller?.abort();render(null)},
+    start() {
+      if (active) {
+        return;
+      }
+      active=true;
+      generation++;
+      poll();
+    },
+    stop() {
+      active=false;
+      generation++;
+      clearTimeout(timer);
+      controller?.abort();
+      render(null);
+    },
   };
 }

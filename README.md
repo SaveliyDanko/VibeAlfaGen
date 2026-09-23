@@ -86,3 +86,9 @@ make admin-down   # остановить, сохранив данные
 make admin-up     # снова запустить
 make admin-logs   # логи панели и генератора нагрузки
 ```
+
+## Документация
+
+- [Схема архитектуры и настройки](ARCHITECTURE_AND_CONFIGURATION.md).
+- [Производительность и дополнительные возможности](PERFORMANCE_AND_FEATURES.md).
+- [Ограничения решения и план развития после хакатона](LIMITATIONS_AND_ROADMAP.md).
